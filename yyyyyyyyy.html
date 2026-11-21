@@ -1,0 +1,685 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Galaxy Battle - Space Shooter</title>
+
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #050816;
+  color: white;
+  font-family: Arial, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+
+#game {
+  width: 100vw;
+  height: 100dvh;
+  display: block;
+  background: linear-gradient(#080d28,#160a30);
+}
+
+#hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.info {
+  background: #101b38cc;
+  border: 1px solid #36d9ff;
+  padding: 9px 12px;
+  border-radius: 10px;
+}
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #020617bb;
+  text-align: center;
+  padding: 20px;
+}
+
+.panel {
+  background: #111a35;
+  border: 2px solid #21d4fd;
+  border-radius: 20px;
+  padding: 30px 22px;
+  width: min(90%, 380px);
+  box-shadow: 0 0 35px #00cfff55;
+}
+
+h1 {
+  color: #36e5ff;
+  font-size: 30px;
+  margin-bottom: 12px;
+  text-shadow: 0 0 15px #00d9ff;
+}
+
+p {
+  color: #cbd5e1;
+  line-height: 1.7;
+  margin-bottom: 18px;
+}
+
+button {
+  border: none;
+  border-radius: 12px;
+  padding: 13px 22px;
+  background: linear-gradient(90deg,#00c6ff,#0072ff);
+  color: white;
+  font-weight: bold;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+button:active {
+  transform: scale(.95);
+}
+
+#controls {
+  position: absolute;
+  bottom: 20px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 25px;
+  pointer-events: none;
+}
+
+.control {
+  display: flex;
+  gap: 12px;
+}
+
+.control button {
+  width: 65px;
+  height: 60px;
+  padding: 0;
+  font-size: 24px;
+  background: #173d70bb;
+  border: 1px solid #42dfff;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+#pause {
+  position: absolute;
+  top: 65px;
+  right: 15px;
+  font-size: 13px;
+  padding: 9px 14px;
+}
+
+@media (min-width: 800px) {
+  #controls {
+    opacity: .65;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div class="info">
+    ⭐ Skor: <span id="score">0</span><br>
+    🚀 Level: <span id="level">1</span>
+  </div>
+  <div class="info">
+    ❤️ Nyawa: <span id="life">3</span><br>
+    🏆 Best: <span id="best">0</span>
+  </div>
+</div>
+
+<button id="pause">⏸ PAUSE</button>
+
+<div id="overlay">
+  <div class="panel">
+    <h1 id="title">🚀 GALAXY BATTLE</h1>
+    <p id="description">
+      Lindungi galaksi dari serangan alien!<br>
+      Hancurkan musuh dan kalahkan boss.<br><br>
+      PC: Gunakan WASD / tombol panah dan SPACE.<br>
+      HP: Gunakan tombol kontrol di layar.
+    </p>
+    <button id="start">MULAI GAME</button>
+  </div>
+</div>
+
+<div id="controls">
+  <div class="control">
+    <button id="left">◀</button>
+    <button id="right">▶</button>
+  </div>
+  <div class="control">
+    <button id="fire">🔥</button>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let W, H;
+
+function resize() {
+  W = canvas.width = innerWidth;
+  H = canvas.height = innerHeight;
+}
+resize();
+addEventListener("resize", resize);
+
+const $ = id => document.getElementById(id);
+
+let score = 0;
+let level = 1;
+let lives = 3;
+let best = Number(localStorage.getItem("galaxyBest")) || 0;
+
+$("best").textContent = best;
+
+let running = false;
+let paused = false;
+let gameOver = false;
+
+let player, bullets, enemies, particles, stars, powerups;
+let boss = null;
+let frame = 0;
+let spawnTimer = 0;
+let keys = {};
+
+function reset() {
+  score = 0;
+  level = 1;
+  lives = 3;
+  frame = 0;
+  spawnTimer = 0;
+  boss = null;
+
+  player = {
+    x: W / 2,
+    y: H - 110,
+    size: 22,
+    speed: 6,
+    cooldown: 0,
+    power: 0,
+    invincible: 0
+  };
+
+  bullets = [];
+  enemies = [];
+  particles = [];
+  powerups = [];
+
+  stars = Array.from({length: 100}, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    speed: Math.random() * 3 + 0.5,
+    size: Math.random() * 2 + 1
+  }));
+
+  updateHUD();
+}
+
+function updateHUD() {
+  $("score").textContent = score;
+  $("level").textContent = level;
+  $("life").textContent = lives;
+  $("best").textContent = best;
+}
+
+function shoot() {
+  if (player.cooldown > 0) return;
+
+  player.cooldown = 12;
+
+  if (player.power > 0) {
+    [-12, 0, 12].forEach(offset => {
+      bullets.push({
+        x: player.x + offset,
+        y: player.y - 22,
+        speed: 10,
+        damage: 1
+      });
+    });
+  } else {
+    bullets.push({
+      x: player.x,
+      y: player.y - 22,
+      speed: 10,
+      damage: 1
+    });
+  }
+}
+
+function spawnEnemy() {
+  const isFast = Math.random() < 0.3;
+
+  enemies.push({
+    x: 25 + Math.random() * (W - 50),
+    y: -30,
+    size: isFast ? 14 : 19,
+    speed: isFast ? 3.8 + level * .3 : 2 + level * .25,
+    hp: isFast ? 1 : 2,
+    type: isFast ? 1 : 0,
+    phase: Math.random() * 6
+  });
+}
+
+function spawnBoss() {
+  boss = {
+    x: W / 2,
+    y: 100,
+    hp: 20 + level * 5,
+    maxHp: 20 + level * 5,
+    direction: 1,
+    cooldown: 0
+  };
+}
+
+function explosion(x, y, color = "#ffb52e") {
+  for (let i = 0; i < 16; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 5 + 1;
+
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 30,
+      color
+    });
+  }
+}
+
+function circleCollision(a, b, radiusA, radiusB) {
+  return Math.hypot(a.x-b.x, a.y-b.y) <
+         radiusA + radiusB;
+}
+
+function endGame() {
+  running = false;
+  gameOver = true;
+
+  if (score > best) {
+    best = score;
+    localStorage.setItem("galaxyBest", best);
+  }
+
+  $("title").textContent = "💥 GAME OVER";
+  $("description").innerHTML =
+    `Skor akhir: <b>${score}</b><br>
+     Level tercapai: <b>${level}</b><br>
+     Rekor terbaik: <b>${best}</b><br><br>
+     Galaksi membutuhkan pahlawan baru!`;
+
+  $("start").textContent = "MAIN LAGI";
+  $("overlay").style.display = "flex";
+  updateHUD();
+}
+
+function update() {
+  if (!running || paused) return;
+
+  frame++;
+
+  // LEVEL
+  level = 1 + Math.floor(score / 150);
+
+  // BINTANG
+  stars.forEach(s => {
+    s.y += s.speed;
+    if (s.y > H) {
+      s.y = 0;
+      s.x = Math.random() * W;
+    }
+  });
+
+  // PLAYER
+  if (keys.ArrowLeft || keys.a || keys.A) player.x -= player.speed;
+  if (keys.ArrowRight || keys.d || keys.D) player.x += player.speed;
+  if (keys.ArrowUp || keys.w || keys.W) player.y -= player.speed;
+  if (keys.ArrowDown || keys.s || keys.S) player.y += player.speed;
+
+  player.x = Math.max(25, Math.min(W - 25, player.x));
+  player.y = Math.max(65, Math.min(H - 45, player.y));
+
+  if (keys.Space || keys.fire) shoot();
+
+  if (player.cooldown > 0) player.cooldown--;
+  if (player.power > 0) player.power--;
+  if (player.invincible > 0) player.invincible--;
+
+  // SPAWN MUSUH
+  spawnTimer++;
+
+  if (!boss && spawnTimer > Math.max(18, 65-level*3)) {
+    spawnEnemy();
+    spawnTimer = 0;
+  }
+
+  // BOSS
+  if (score > 0 && score % 500 < 2 && !boss) {
+    spawnBoss();
+  }
+
+  // PELURU
+  bullets.forEach(b => b.y -= b.speed);
+  bullets = bullets.filter(b => b.y > -20);
+
+  // MUSUH
+  enemies.forEach(e => {
+    e.y += e.speed;
+    e.x += Math.sin(frame*.04 + e.phase) * 1.5;
+
+    if (circleCollision(player,e,18,e.size) &&
+        player.invincible === 0) {
+      lives--;
+      player.invincible = 80;
+      explosion(e.x,e.y);
+      e.y = H + 100;
+      updateHUD();
+    }
+  });
+
+  // TABRAKAN PELURU DAN MUSUH
+  bullets.forEach(b => {
+    enemies.forEach(e => {
+      if (e.y < H+50 && circleCollision(b,e,5,e.size)) {
+        e.hp -= b.damage;
+        b.y = -100;
+
+        if (e.hp <= 0) {
+          explosion(e.x,e.y);
+          e.y = H+100;
+          score += 10;
+        }
+      }
+    });
+
+    if (boss && circleCollision(b,boss,5,38)) {
+      boss.hp--;
+      b.y = -100;
+
+      if (boss.hp <= 0) {
+        explosion(boss.x,boss.y,"#ff33cc");
+        score += 200;
+        boss = null;
+      }
+    }
+  });
+
+  enemies = enemies.filter(e => {
+    if (e.y > H+30) {
+      if (e.y < H+100) lives--;
+      return false;
+    }
+    return true;
+  });
+
+  // BOSS
+  if (boss) {
+    boss.x += boss.direction * (2 + level*.15);
+
+    if (boss.x > W-50 || boss.x < 50) {
+      boss.direction *= -1;
+    }
+
+    boss.cooldown++;
+
+    if (boss.cooldown > 70) {
+      bullets.push({
+        x: boss.x,
+        y: boss.y+30,
+        speed: -0,
+        damage: 0,
+        enemyShot: true
+      });
+
+      boss.cooldown = 0;
+    }
+  }
+
+  // PELURU BOSS
+  bullets.forEach(b => {
+    if (b.enemyShot) {
+      b.y += 5;
+
+      if (circleCollision(b,player,5,17) &&
+          player.invincible === 0) {
+        lives--;
+        player.invincible = 80;
+        b.y = H+100;
+      }
+    }
+  });
+
+  bullets = bullets.filter(b => b.y < H+20);
+
+  // POWER UP
+  if (Math.random() < .001) {
+    powerups.push({
+      x: Math.random()*(W-50)+25,
+      y: -20
+    });
+  }
+
+  powerups.forEach(p => {
+    p.y += 2;
+
+    if (circleCollision(p,player,12,18)) {
+      player.power = 600;
+      p.y = H+100;
+    }
+  });
+
+  powerups = powerups.filter(p => p.y < H+20);
+
+  // PARTIKEL
+  particles.forEach(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
+  });
+
+  particles = particles.filter(p => p.life > 0);
+
+  if (lives <= 0) endGame();
+
+  updateHUD();
+}
+
+function drawPlayer() {
+  ctx.save();
+  ctx.translate(player.x,player.y);
+
+  if (player.invincible > 0 && frame%8 < 4) {
+    ctx.globalAlpha = .35;
+  }
+
+  // api mesin
+  ctx.fillStyle = "#ff8c28";
+  ctx.beginPath();
+  ctx.moveTo(-8,15);
+  ctx.lineTo(0,30+Math.random()*8);
+  ctx.lineTo(8,15);
+  ctx.fill();
+
+  // sayap
+  ctx.fillStyle = "#00cfff";
+  ctx.beginPath();
+  ctx.moveTo(0,-25);
+  ctx.lineTo(-22,20);
+  ctx.lineTo(-8,14);
+  ctx.lineTo(0,19);
+  ctx.lineTo(8,14);
+  ctx.lineTo(22,20);
+  ctx.closePath();
+  ctx.fill();
+
+  // kokpit
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.ellipse(0,-7,5,10,0,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function draw() {
+  ctx.clearRect(0,0,W,H);
+
+  // BACKGROUND
+  stars.forEach(s => {
+    ctx.fillStyle = "#b9e9ff";
+    ctx.globalAlpha = .3 + Math.random()*.7;
+    ctx.fillRect(s.x,s.y,s.size,s.size);
+  });
+  ctx.globalAlpha = 1;
+
+  // PLAYER
+  if (player) drawPlayer();
+
+  // BULLETS
+  bullets.forEach(b => {
+    ctx.fillStyle = b.enemyShot ? "#ff3860" : "#00f5ff";
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.fillRect(b.x-3,b.y-10,6,16);
+  });
+  ctx.shadowBlur = 0;
+
+  // ENEMIES
+  enemies.forEach(e => {
+    ctx.fillStyle = e.type ? "#ff4f81" : "#a855f7";
+    ctx.beginPath();
+    ctx.moveTo(e.x,e.y-e.size);
+    ctx.lineTo(e.x+e.size,e.y);
+    ctx.lineTo(e.x,e.y+e.size);
+    ctx.lineTo(e.x-e.size,e.y);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "white";
+    ctx.fillRect(e.x-7,e.y-3,4,4);
+    ctx.fillRect(e.x+3,e.y-3,4,4);
+  });
+
+  // BOSS
+  if (boss) {
+    ctx.fillStyle = "#ec168c";
+    ctx.beginPath();
+    ctx.arc(boss.x,boss.y,38,0,Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(boss.x-15,boss.y-8,8,8);
+    ctx.fillRect(boss.x+7,boss.y-8,8,8);
+
+    ctx.fillStyle = "#333";
+    ctx.fillRect(boss.x-40,boss.y-55,80,7);
+    ctx.fillStyle = "#00ff88";
+    ctx.fillRect(boss.x-40,boss.y-55,
+      80*Math.max(0,boss.hp/boss.maxHp),7);
+  }
+
+  // POWER UP
+  powerups.forEach(p => {
+    ctx.fillStyle = "#ffe600";
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,12,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = "#222";
+    ctx.font = "bold 15px Arial";
+    ctx.fillText("P",p.x-5,p.y+5);
+  });
+
+  // EXPLOSION
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life/30;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x,p.y,5,5);
+  });
+  ctx.globalAlpha = 1;
+
+  requestAnimationFrame(draw);
+}
+
+function loop() {
+  update();
+  setTimeout(loop,16);
+}
+
+$("start").onclick = () => {
+  reset();
+  gameOver = false;
+  paused = false;
+  running = true;
+  $("overlay").style.display = "none";
+};
+
+$("pause").onclick = () => {
+  if (!running) return;
+  paused = !paused;
+  $("pause").textContent = paused ? "▶ LANJUT" : "⏸ PAUSE";
+};
+
+addEventListener("keydown",e => {
+  keys[e.key] = true;
+  if (e.code === "Space") {
+    keys.Space = true;
+    e.preventDefault();
+  }
+});
+
+addEventListener("keyup",e => {
+  keys[e.key] = false;
+  if (e.code === "Space") keys.Space = false;
+});
+
+function bindButton(id,key) {
+  const btn = $(id);
+
+  btn.addEventListener("pointerdown",e => {
+    e.preventDefault();
+    keys[key] = true;
+    btn.setPointerCapture(e.pointerId);
+  });
+
+  ["pointerup","pointercancel","lostpointercapture"].forEach(event => {
+    btn.addEventListener(event,() => keys[key] = false);
+  });
+}
+
+bindButton("left","ArrowLeft");
+bindButton("right","ArrowRight");
+bindButton("fire","fire");
+
+reset();
+draw();
+loop();
+</script>
+</body>
+</html>
